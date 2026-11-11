@@ -167,6 +167,9 @@ export default function AdminSkillsPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "Skill updated successfully!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           // Immediate optimistic UI update
           setSkills((prev) =>
             prev.map((s) => (s.id === editingId ? { ...formData, id: editingId } : s))
@@ -185,6 +188,9 @@ export default function AdminSkillsPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "New skill created successfully!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           // Immediate optimistic UI update
           if (data.data) {
             setSkills((prev) => [...prev, data.data]);
@@ -211,6 +217,9 @@ export default function AdminSkillsPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Skill deleted successfully" });
+        try {
+          localStorage.setItem("portfolio_updated", Date.now().toString());
+        } catch {}
         fetchSkills();
       } else {
         setMessage({ type: "error", text: data.error || "Failed to delete skill" });
