@@ -12,6 +12,13 @@ import {
   X,
   Search,
   Filter,
+  Video,
+  Sparkles,
+  PenTool,
+  Sliders,
+  Layout,
+  Volume2,
+  Box,
 } from "lucide-react";
 import { Skill } from "@/types";
 
@@ -24,9 +31,21 @@ const CATEGORIES = [
   "Audio & 3D",
 ] as const;
 
+const AVAILABLE_ICONS = [
+  { name: "Video", label: "Video / Premiere / DaVinci", Icon: Video },
+  { name: "Sparkles", label: "Motion / VFX / After Effects", Icon: Sparkles },
+  { name: "Layout", label: "Design / UI / Photoshop", Icon: Layout },
+  { name: "PenTool", label: "Vector / Illustrator / Pen", Icon: PenTool },
+  { name: "Sliders", label: "Color Grading / Wheels", Icon: Sliders },
+  { name: "Volume2", label: "Audio / Sound Design", Icon: Volume2 },
+  { name: "Box", label: "3D / Blender / CGI", Icon: Box },
+  { name: "Cpu", label: "Arsenal / Software / Other", Icon: Cpu },
+];
+
 export default function AdminSkillsPage() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -50,15 +69,20 @@ export default function AdminSkillsPage() {
 
   const fetchSkills = async () => {
     try {
-      const res = await fetch("/api/admin/skills");
+      const res = await fetch("/api/admin/skills?t=" + Date.now(), {
+        cache: "no-store",
+        headers: { Pragma: "no-cache" },
+      });
       if (res.status === 401) {
         window.location.href = "/admin/login";
         return;
       }
       const data = await res.json();
-      if (data?.success) setSkills(data.data);
-    } catch {
-      // ignore
+      if (data?.success && Array.isArray(data.data)) {
+        setSkills(data.data);
+      }
+    } catch (err) {
+      console.error("Fetch skills error:", err);
     } finally {
       setLoading(false);
     }
@@ -86,7 +110,10 @@ export default function AdminSkillsPage() {
 
   const openAddModal = () => {
     setEditingId(null);
-    setFormData(emptyForm);
+    setFormData({
+      ...emptyForm,
+      order: skills.length > 0 ? Math.max(...skills.map((s) => s.order ?? 0)) + 1 : 1,
+    });
     setModalOpen(true);
   };
 
@@ -96,16 +123,37 @@ export default function AdminSkillsPage() {
       name: skill.name,
       category: skill.category,
       proficiency: skill.proficiency,
-      iconName: skill.iconName,
+      iconName: skill.iconName || "Video",
       experienceYears: skill.experienceYears,
-      featured: skill.featured,
-      order: skill.order,
+      featured: skill.featured ?? true,
+      order: skill.order ?? 0,
     });
     setModalOpen(true);
   };
 
+  const handleCategoryChange = (newCategory: any) => {
+    let suggestedIcon = formData.iconName;
+    if (newCategory === "Video Editing") suggestedIcon = "Video";
+    else if (newCategory === "Motion Graphics") suggestedIcon = "Sparkles";
+    else if (newCategory === "Graphic Design") suggestedIcon = "Layout";
+    else if (newCategory === "Color Grading") suggestedIcon = "Sliders";
+    else if (newCategory === "Audio & 3D") suggestedIcon = "Volume2";
+
+    setFormData({
+      ...formData,
+      category: newCategory,
+      iconName: suggestedIcon,
+    });
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.name.trim()) {
+      setMessage({ type: "error", text: "Software / Skill name is required" });
+      return;
+    }
+
+    setSaving(true);
     setMessage(null);
 
     try {
@@ -119,6 +167,10 @@ export default function AdminSkillsPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "Skill updated successfully!" });
           setModalOpen(false);
+          // Immediate optimistic UI update
+          setSkills((prev) =>
+            prev.map((s) => (s.id === editingId ? { ...formData, id: editingId } : s))
+          );
           fetchSkills();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to update skill" });
@@ -131,31 +183,63 @@ export default function AdminSkillsPage() {
         });
         const data = await res.json();
         if (res.ok && data.success) {
-          setMessage({ type: "success", text: "New skill created!" });
+          setMessage({ type: "success", text: "New skill created successfully!" });
           setModalOpen(false);
+          // Immediate optimistic UI update
+          if (data.data) {
+            setSkills((prev) => [...prev, data.data]);
+          }
           fetchSkills();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to create skill" });
         }
       }
     } catch {
-      setMessage({ type: "error", text: "Network error occurred" });
+      setMessage({ type: "error", text: "Network error occurred while saving skill" });
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
+      // Immediate optimistic update
+      setSkills((prev) => prev.filter((s) => s.id !== id));
+      setDeleteConfirmId(null);
+
       const res = await fetch(`/api/admin/skills/${id}`, { method: "DELETE" });
       const data = await res.json();
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Skill deleted successfully" });
-        setDeleteConfirmId(null);
         fetchSkills();
       } else {
         setMessage({ type: "error", text: data.error || "Failed to delete skill" });
+        fetchSkills();
       }
     } catch {
       setMessage({ type: "error", text: "Network error occurred" });
+      fetchSkills();
+    }
+  };
+
+  const getCardIcon = (iconName: string) => {
+    switch (iconName?.toLowerCase()) {
+      case "video":
+        return Video;
+      case "sparkles":
+        return Sparkles;
+      case "layout":
+        return Layout;
+      case "pentool":
+        return PenTool;
+      case "sliders":
+        return Sliders;
+      case "volume2":
+        return Volume2;
+      case "box":
+        return Box;
+      default:
+        return Cpu;
     }
   };
 
@@ -177,7 +261,7 @@ export default function AdminSkillsPage() {
             <span>Skills & Software Tools</span>
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">
-            Manage your proficiency in industry-leading creative software (Premiere Pro, After Effects, Photoshop, DaVinci Resolve).
+            Manage your proficiency in industry-leading creative software. Any changes added here automatically update on the main website.
           </p>
         </div>
 
@@ -213,7 +297,7 @@ export default function AdminSkillsPage() {
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search software (e.g. Premiere Pro, DaVinci Resolve)..."
+            placeholder="Search software (e.g. Premiere Pro, DaVinci Resolve, Photoshop)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-xl border border-white/10 bg-dark-950 pl-10 pr-4 py-2 text-xs text-white placeholder-gray-500 focus:border-electric-500 focus:outline-none"
@@ -249,59 +333,72 @@ export default function AdminSkillsPage() {
 
       {/* Skills Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredSkills.map((skill) => (
-          <div
-            key={skill.id}
-            className="flex flex-col justify-between rounded-2xl border border-white/10 bg-dark-900/90 p-5 hover:border-white/20 transition-all shadow-md"
-          >
-            <div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-electric-500/10 text-electric-400 font-bold text-sm">
-                    {skill.name.slice(0, 2).toUpperCase()}
+        {filteredSkills.map((skill) => {
+          const Icon = getCardIcon(skill.iconName);
+          return (
+            <div
+              key={skill.id}
+              className="flex flex-col justify-between rounded-2xl border border-white/10 bg-dark-900/90 p-5 hover:border-white/20 transition-all shadow-md group"
+            >
+              <div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-electric-500/10 border border-electric-500/20 text-electric-400">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-white text-sm">{skill.name}</h3>
+                      <span className="text-[11px] text-gray-400">{skill.category}</span>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-white text-sm">{skill.name}</h3>
-                    <span className="text-[11px] text-gray-400">{skill.category}</span>
-                  </div>
+
+                  <span className="text-xs font-bold text-neon-orange px-2 py-0.5 rounded-full bg-neon-orange/10 border border-neon-orange/20">
+                    {skill.proficiency}%
+                  </span>
                 </div>
 
-                <span className="text-xs font-bold text-neon-orange">{skill.proficiency}%</span>
+                {/* Progress bar */}
+                <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-dark-950">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-electric-500 to-neon-orange transition-all duration-500"
+                    style={{ width: `${skill.proficiency}%` }}
+                  />
+                </div>
+
+                <div className="mt-3 flex items-center justify-between text-[11px] text-gray-400">
+                  <span>{skill.experienceYears} Years Exp.</span>
+                  <span className="text-[10px] text-gray-500">Order #{skill.order ?? 0}</span>
+                </div>
               </div>
 
-              {/* Progress bar */}
-              <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-dark-950">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-electric-500 to-neon-orange transition-all duration-500"
-                  style={{ width: `${skill.proficiency}%` }}
-                />
-              </div>
-
-              <div className="mt-3 flex items-center justify-between text-[11px] text-gray-400">
-                <span>{skill.experienceYears} Years Exp.</span>
-                <span>Order: {skill.order}</span>
+              <div className="mt-4 flex items-center justify-end gap-2 border-t border-white/5 pt-3">
+                <button
+                  onClick={() => openEditModal(skill)}
+                  className="rounded-lg p-1.5 text-gray-400 hover:bg-white/5 hover:text-white transition-colors"
+                  title="Edit Skill"
+                >
+                  <Edit className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setDeleteConfirmId(skill.id)}
+                  className="rounded-lg p-1.5 text-red-400 hover:bg-red-500/10 transition-colors"
+                  title="Delete Skill"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
             </div>
-
-            <div className="mt-4 flex items-center justify-end gap-2 border-t border-white/5 pt-3">
-              <button
-                onClick={() => openEditModal(skill)}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-white/5 hover:text-white"
-                title="Edit Skill"
-              >
-                <Edit className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setDeleteConfirmId(skill.id)}
-                className="rounded-lg p-1.5 text-red-400 hover:bg-red-500/10"
-                title="Delete Skill"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {filteredSkills.length === 0 && (
+        <div className="text-center py-16 border border-dashed border-white/10 rounded-2xl bg-dark-900/40">
+          <Cpu className="h-10 w-10 text-gray-600 mx-auto mb-3" />
+          <h3 className="text-sm font-semibold text-gray-300">No skills found</h3>
+          <p className="text-xs text-gray-500 mt-1">Try another search or click &quot;Add New Skill / Tool&quot; to add one.</p>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
@@ -312,7 +409,7 @@ export default function AdminSkillsPage() {
             </div>
             <h3 className="text-lg font-bold text-white">Delete Skill?</h3>
             <p className="mt-1.5 text-xs text-gray-400">
-              Are you sure you want to remove this skill from the portfolio?
+              Are you sure you want to remove this skill? It will immediately disappear from both the admin dashboard and the public homepage.
             </p>
 
             <div className="mt-6 flex items-center justify-end gap-3">
@@ -338,11 +435,11 @@ export default function AdminSkillsPage() {
       {/* Add / Edit Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-dark-900 p-6 shadow-2xl">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-dark-900 p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-white/10">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <Cpu className="h-5 w-5 text-neon-orange" />
-                <span>{editingId ? "Edit Skill" : "Add Skill"}</span>
+                <span>{editingId ? "Edit Skill / Tool" : "Add New Skill / Tool"}</span>
               </h2>
               <button
                 onClick={() => setModalOpen(false)}
@@ -355,14 +452,14 @@ export default function AdminSkillsPage() {
             <form onSubmit={handleSave} className="space-y-4 pt-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
-                  Software Name <span className="text-red-400">*</span>
+                  Software / Tool Name <span className="text-red-400">*</span>
                 </label>
                 <input
                   type="text"
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g. Adobe Premiere Pro"
+                  placeholder="e.g. Adobe Premiere Pro, DaVinci Resolve, Photoshop"
                   className="w-full rounded-xl border border-white/10 bg-dark-950 px-4 py-2 text-xs text-white focus:border-electric-500 focus:outline-none"
                 />
               </div>
@@ -374,7 +471,7 @@ export default function AdminSkillsPage() {
                   </label>
                   <select
                     value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}
+                    onChange={(e) => handleCategoryChange(e.target.value)}
                     className="w-full rounded-xl border border-white/10 bg-dark-950 px-4 py-2 text-xs text-white focus:border-electric-500 focus:outline-none"
                   >
                     <option value="Video Editing">Video Editing</option>
@@ -387,8 +484,30 @@ export default function AdminSkillsPage() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
-                    Proficiency % ({formData.proficiency}%)
+                    Icon Representation
                   </label>
+                  <select
+                    value={formData.iconName}
+                    onChange={(e) => setFormData({ ...formData, iconName: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-dark-950 px-4 py-2 text-xs text-white focus:border-electric-500 focus:outline-none"
+                  >
+                    {AVAILABLE_ICONS.map((ic) => (
+                      <option key={ic.name} value={ic.name}>
+                        {ic.name} — {ic.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
+                      Proficiency Level
+                    </label>
+                    <span className="text-xs font-bold text-neon-orange">{formData.proficiency}%</span>
+                  </div>
                   <input
                     type="range"
                     min="10"
@@ -399,9 +518,7 @@ export default function AdminSkillsPage() {
                     className="w-full accent-electric-500 cursor-pointer pt-2"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
                     Years of Experience
@@ -415,7 +532,9 @@ export default function AdminSkillsPage() {
                     className="w-full rounded-xl border border-white/10 bg-dark-950 px-4 py-2 text-xs text-white focus:border-electric-500 focus:outline-none"
                   />
                 </div>
+              </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
                     Display Order
@@ -427,19 +546,19 @@ export default function AdminSkillsPage() {
                     className="w-full rounded-xl border border-white/10 bg-dark-950 px-4 py-2 text-xs text-white focus:border-electric-500 focus:outline-none"
                   />
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  type="checkbox"
-                  id="skillFeatured"
-                  checked={formData.featured}
-                  onChange={(e) => setFormData({ ...formData, featured: e.target.checked })}
-                  className="h-4 w-4 rounded border-white/20 bg-dark-950 text-electric-600 focus:ring-electric-500"
-                />
-                <label htmlFor="skillFeatured" className="text-xs font-semibold text-gray-300">
-                  Feature in Homepage Primary Skills
-                </label>
+                <div className="flex items-center gap-2 pt-6">
+                  <input
+                    type="checkbox"
+                    id="skillFeatured"
+                    checked={formData.featured}
+                    onChange={(e) => setFormData({ ...formData, featured: e.target.checked })}
+                    className="h-4 w-4 rounded border-white/20 bg-dark-950 text-electric-600 focus:ring-electric-500"
+                  />
+                  <label htmlFor="skillFeatured" className="text-xs font-semibold text-gray-300 cursor-pointer">
+                    Feature on Homepage
+                  </label>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
@@ -452,10 +571,11 @@ export default function AdminSkillsPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-electric-600 to-neon-orange px-5 py-2 text-xs font-bold text-white shadow-lg shadow-electric-600/30 hover:brightness-110"
+                  disabled={saving}
+                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-electric-600 to-neon-orange px-5 py-2 text-xs font-bold text-white shadow-lg shadow-electric-600/30 hover:brightness-110 disabled:opacity-50"
                 >
                   <Save className="h-4 w-4" />
-                  <span>{editingId ? "Update Skill" : "Save Skill"}</span>
+                  <span>{saving ? "Saving..." : editingId ? "Update Skill" : "Save Skill"}</span>
                 </button>
               </div>
             </form>

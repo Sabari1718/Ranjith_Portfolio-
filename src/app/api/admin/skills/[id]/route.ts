@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { getAdminFromRequest } from "@/lib/auth";
 import { updateSkill, deleteSkill } from "@/lib/storage";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const admin = getAdminFromRequest(req);
@@ -14,7 +18,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (!updated) {
       return NextResponse.json({ success: false, error: "Skill not found" }, { status: 404 });
     }
-    return NextResponse.json({ success: true, message: "Skill updated", data: updated });
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/skills");
+      revalidatePath("/api/portfolio");
+    } catch {}
+
+    return NextResponse.json({ success: true, message: "Skill updated successfully", data: updated });
   } catch (error) {
     console.error("Update skill error:", error);
     return NextResponse.json({ success: false, error: "Failed to update skill" }, { status: 500 });
@@ -29,10 +40,14 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
   try {
     const success = await deleteSkill(params.id);
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/skills");
+      revalidatePath("/api/portfolio");
+    } catch {}
     return NextResponse.json({ success, message: "Skill deleted successfully" });
   } catch (error) {
     console.error("Delete skill error:", error);
     return NextResponse.json({ success: false, error: "Failed to delete skill" }, { status: 500 });
   }
 }
-

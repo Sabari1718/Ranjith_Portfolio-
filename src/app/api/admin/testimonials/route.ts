@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { getAdminFromRequest } from "@/lib/auth";
 import { getTestimonials, createTestimonial } from "@/lib/storage";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   const admin = getAdminFromRequest(req);
@@ -9,7 +13,16 @@ export async function GET(req: NextRequest) {
   }
 
   const testimonials = await getTestimonials();
-  return NextResponse.json({ success: true, data: testimonials });
+  return NextResponse.json(
+    { success: true, data: testimonials },
+    {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+    }
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -23,24 +36,27 @@ export async function POST(req: NextRequest) {
     const { clientName, clientRole, clientCompany, avatarUrl, rating, content, projectRef, featured, order, active } = body;
 
     if (!clientName || !content) {
-      return NextResponse.json(
-        { success: false, error: "Client name and testimonial content are required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Client Name and Testimonial Content are required" }, { status: 400 });
     }
 
     const newTestimonial = await createTestimonial({
       clientName,
       clientRole: clientRole || "Client",
       clientCompany: clientCompany || "",
-      avatarUrl: avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+      avatarUrl: avatarUrl || "",
       rating: Number(rating) || 5,
       content,
       projectRef: projectRef || "",
       featured: Boolean(featured),
       order: Number(order) || 0,
-      active: active !== undefined ? Boolean(active) : true,
+      active: active !== false,
     });
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/testimonials");
+      revalidatePath("/api/portfolio");
+    } catch {}
 
     return NextResponse.json({ success: true, message: "Testimonial created", data: newTestimonial });
   } catch (error) {

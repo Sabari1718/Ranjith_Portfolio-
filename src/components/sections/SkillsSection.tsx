@@ -19,6 +19,8 @@ interface SkillsSectionProps {
 }
 
 export default function SkillsSection({ skills }: SkillsSectionProps) {
+  const sortedSkills = (skills || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
   const getSkillIcon = (iconName: string) => {
     switch (iconName?.toLowerCase()) {
       case "video":
@@ -65,7 +67,7 @@ export default function SkillsSection({ skills }: SkillsSectionProps) {
 
         {/* Skills Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {skills.map((skill, idx) => {
+          {sortedSkills.map((skill, idx) => {
             const Icon = getSkillIcon(skill.iconName);
             return (
               <motion.div

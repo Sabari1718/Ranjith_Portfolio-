@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { getAdminFromRequest } from "@/lib/auth";
 import { getDesigns, createDesign } from "@/lib/storage";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   const admin = getAdminFromRequest(req);
@@ -9,7 +13,16 @@ export async function GET(req: NextRequest) {
   }
 
   const designs = await getDesigns();
-  return NextResponse.json({ success: true, data: designs });
+  return NextResponse.json(
+    { success: true, data: designs },
+    {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+    }
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -20,31 +33,33 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { title, description, category, imageUrl, client, toolsUsed, featured, aspectRatio, order } = body;
+    const { title, description, category, imageUrl, toolsUsed, client, aspectRatio, featured, order } = body;
 
     if (!title || !imageUrl) {
-      return NextResponse.json(
-        { success: false, error: "Title and Image URL are required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Title and Image URL are required" }, { status: 400 });
     }
 
     const newDesign = await createDesign({
       title,
       description: description || "",
-      category: category || "Logo & Branding",
+      category: category || "Posters & Print",
       imageUrl,
-      client: client || "",
       toolsUsed: Array.isArray(toolsUsed) ? toolsUsed : (toolsUsed ? [toolsUsed] : ["Photoshop"]),
+      client: client || "",
+      aspectRatio: aspectRatio || "vertical",
       featured: Boolean(featured),
-      aspectRatio: aspectRatio || "square",
       order: Number(order) || 0,
     });
 
-    return NextResponse.json({ success: true, message: "Design created", data: newDesign });
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/designs");
+      revalidatePath("/api/portfolio");
+    } catch {}
+
+    return NextResponse.json({ success: true, message: "Design project created", data: newDesign });
   } catch (error) {
     console.error("Create design error:", error);
     return NextResponse.json({ success: false, error: "Failed to create design" }, { status: 500 });
   }
 }
-

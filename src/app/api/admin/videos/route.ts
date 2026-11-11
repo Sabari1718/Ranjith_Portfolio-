@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { getAdminFromRequest } from "@/lib/auth";
 import { getVideos, createVideo } from "@/lib/storage";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   const admin = getAdminFromRequest(req);
@@ -9,7 +13,16 @@ export async function GET(req: NextRequest) {
   }
 
   const videos = await getVideos();
-  return NextResponse.json({ success: true, data: videos });
+  return NextResponse.json(
+    { success: true, data: videos },
+    {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+    }
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -44,10 +57,15 @@ export async function POST(req: NextRequest) {
       views: views || "",
     });
 
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/videos");
+      revalidatePath("/api/portfolio");
+    } catch {}
+
     return NextResponse.json({ success: true, message: "Video project created", data: newVideo });
   } catch (error) {
     console.error("Create video error:", error);
     return NextResponse.json({ success: false, error: "Failed to create video" }, { status: 500 });
   }
 }
-

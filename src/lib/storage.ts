@@ -33,8 +33,15 @@ import {
   AdminUserModel,
 } from "./models/schemas";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+declare global {
+  // eslint-disable-next-line no-var
+  var memoryPortfolioDb: LocalStoreShape | undefined;
+}
+
+const IS_VERCEL = Boolean(process.env.VERCEL);
+const DATA_DIR = IS_VERCEL ? "/tmp" : path.join(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "portfolio-db.json");
+const BUNDLED_DB_FILE = path.join(process.cwd(), "data", "portfolio-db.json");
 
 interface LocalStoreShape {
   hero: HeroData;
@@ -57,8 +64,30 @@ interface LocalStoreShape {
 }
 
 function ensureDataFile(): LocalStoreShape {
+  // If memory cache exists, return it
+  if (globalThis.memoryPortfolioDb) {
+    return globalThis.memoryPortfolioDb;
+  }
+
   if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    } catch {}
+  }
+
+  // If DB_FILE does not exist, check if BUNDLED_DB_FILE exists (e.g. on Vercel deployment)
+  if (!fs.existsSync(DB_FILE) && fs.existsSync(BUNDLED_DB_FILE)) {
+    try {
+      const bundledContent = fs.readFileSync(BUNDLED_DB_FILE, "utf-8");
+      const parsedBundled = JSON.parse(bundledContent);
+      try {
+        fs.writeFileSync(DB_FILE, bundledContent, "utf-8");
+      } catch {}
+      globalThis.memoryPortfolioDb = parsedBundled;
+      return parsedBundled;
+    } catch (e) {
+      console.warn("Could not copy bundled DB:", e);
+    }
   }
 
   if (!fs.existsSync(DB_FILE)) {
@@ -90,7 +119,12 @@ function ensureDataFile(): LocalStoreShape {
       },
     };
 
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), "utf-8");
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), "utf-8");
+    } catch (e) {
+      console.warn("Cannot write initial DB file:", e);
+    }
+    globalThis.memoryPortfolioDb = initialData;
     return initialData;
   }
 
@@ -103,10 +137,20 @@ function ensureDataFile(): LocalStoreShape {
         username: process.env.ADMIN_USERNAME || "ranjithkumar",
       };
     }
+    if (!Array.isArray(parsed.skills)) parsed.skills = initialPortfolioData.skills || [];
+    if (!Array.isArray(parsed.videos)) parsed.videos = initialPortfolioData.videos || [];
+    if (!Array.isArray(parsed.designs)) parsed.designs = initialPortfolioData.designs || [];
+    if (!Array.isArray(parsed.services)) parsed.services = initialPortfolioData.services || [];
+    if (!Array.isArray(parsed.experience)) parsed.experience = initialPortfolioData.experience || [];
+    if (!Array.isArray(parsed.education)) parsed.education = initialPortfolioData.education || [];
+    if (!Array.isArray(parsed.testimonials)) parsed.testimonials = initialPortfolioData.testimonials || [];
+    if (!Array.isArray(parsed.enquiries)) parsed.enquiries = [];
+
+    globalThis.memoryPortfolioDb = parsed;
     return parsed;
   } catch (err) {
     console.error("Error reading JSON db, restoring initial:", err);
-    return {
+    const fallback: LocalStoreShape = {
       ...initialPortfolioData,
       enquiries: [],
       admin: {
@@ -116,10 +160,14 @@ function ensureDataFile(): LocalStoreShape {
         name: "Ranjith Kumar (Admin)",
       },
     };
+    globalThis.memoryPortfolioDb = fallback;
+    return fallback;
   }
 }
 
 function writeDataFile(data: LocalStoreShape): void {
+  // Always update global memory cache first for instant reads across requests
+  globalThis.memoryPortfolioDb = data;
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -437,22 +485,26 @@ export async function deleteService(id: string): Promise<boolean> {
 // ------------------- SKILLS -------------------
 export async function getSkills(): Promise<Skill[]> {
   const data = await getPortfolioData();
-  return data.skills;
+  return (data.skills || []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 }
 
 export async function createSkill(skill: Omit<Skill, "id">): Promise<Skill> {
+  let createdSkill: Skill | null = null;
   const db = await connectToDatabase();
   if (db) {
     try {
       const created = await SkillModel.create(skill);
-      return { ...created.toObject(), id: created._id.toString() };
+      createdSkill = { ...created.toObject(), id: created._id.toString() };
     } catch (e) {
       console.warn("Mongo createSkill error:", e);
     }
   }
 
   const local = ensureDataFile();
-  const newSkill: Skill = {
+  if (!Array.isArray(local.skills)) {
+    local.skills = [];
+  }
+  const newSkill: Skill = createdSkill || {
     ...skill,
     id: "sk-" + Date.now(),
   };
@@ -462,19 +514,32 @@ export async function createSkill(skill: Omit<Skill, "id">): Promise<Skill> {
 }
 
 export async function updateSkill(id: string, skill: Partial<Skill>): Promise<Skill | null> {
+  let updatedSkill: Skill | null = null;
   const db = await connectToDatabase();
   if (db) {
     try {
       const updated = await SkillModel.findByIdAndUpdate(id, { $set: skill }, { new: true }).lean();
-      if (updated) return { ...updated, id: updated._id.toString() } as unknown as Skill;
+      if (updated) {
+        updatedSkill = { ...updated, id: updated._id.toString() } as unknown as Skill;
+      }
     } catch (e) {
       console.warn("Mongo updateSkill error:", e);
     }
   }
 
   const local = ensureDataFile();
+  if (!Array.isArray(local.skills)) {
+    local.skills = [];
+  }
   const index = local.skills.findIndex((s) => s.id === id);
-  if (index === -1) return null;
+  if (index === -1) {
+    if (updatedSkill) {
+      local.skills.push(updatedSkill);
+      writeDataFile(local);
+      return updatedSkill;
+    }
+    return null;
+  }
   local.skills[index] = { ...local.skills[index], ...skill };
   writeDataFile(local);
   return local.skills[index];
@@ -485,13 +550,15 @@ export async function deleteSkill(id: string): Promise<boolean> {
   if (db) {
     try {
       await SkillModel.findByIdAndDelete(id);
-      return true;
     } catch (e) {
       console.warn("Mongo deleteSkill error:", e);
     }
   }
 
   const local = ensureDataFile();
+  if (!Array.isArray(local.skills)) {
+    local.skills = [];
+  }
   local.skills = local.skills.filter((s) => s.id !== id);
   writeDataFile(local);
   return true;
