@@ -176,6 +176,13 @@ function writeDataFile(data: LocalStoreShape): void {
   } catch (err) {
     console.error("Error writing to portfolio-db.json:", err);
   }
+
+  // Also sync to BUNDLED_DB_FILE if writable (e.g. local development)
+  try {
+    if (BUNDLED_DB_FILE !== DB_FILE && fs.existsSync(path.dirname(BUNDLED_DB_FILE))) {
+      fs.writeFileSync(BUNDLED_DB_FILE, JSON.stringify(data, null, 2), "utf-8");
+    }
+  } catch {}
 }
 
 // ------------------- PORTFOLIO OVERVIEW -------------------

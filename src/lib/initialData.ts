@@ -7,7 +7,7 @@ export const initialPortfolioData: PortfolioData = {
     title: "Video Editor & Graphic Designer",
     tagline: "Turning Ideas Into High-Impact Visual Experiences.",
     bio: "Passionate visual storyteller with 5+ years of craft in cinematic video editing, viral short-form content, motion design, and high-conversion graphic identities for creators, brands, and agencies worldwide.",
-    profileImage: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+    profileImage: "/uploads/1794377448477-vnni10n.jpg",
     showreelUrl: "https://www.youtube.com/watch?v=LXb3EKWsInQ",
     showreelThumbnail: "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=1200&q=80",
     ctaPrimaryText: "Explore My Work",
