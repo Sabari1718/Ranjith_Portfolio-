@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   Video,
   Plus,
@@ -13,8 +13,12 @@ import {
   X,
   Search,
   Filter,
-  Eye,
   Star,
+  Upload,
+  Link as LinkIcon,
+  Film,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { VideoProject } from "@/types";
 import MediaUploader from "@/components/admin/MediaUploader";
@@ -29,6 +33,86 @@ const CATEGORIES = [
   "Music Video",
 ] as const;
 
+/**
+ * Automatically captures a high-resolution video frame from a video file or blob URL,
+ * and extracts the video duration in mm:ss format.
+ */
+function extractVideoFrameAndDuration(
+  fileOrUrl: File | string
+): Promise<{ thumbnailDataUrl: string; durationFormatted: string; durationSec: number }> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+
+    const sourceUrl = typeof fileOrUrl === "string" ? fileOrUrl : URL.createObjectURL(fileOrUrl);
+    video.src = sourceUrl;
+
+    const cleanup = () => {
+      if (typeof fileOrUrl !== "string") {
+        URL.revokeObjectURL(sourceUrl);
+      }
+    };
+
+    video.onloadedmetadata = () => {
+      // Seek to ~1.0s or middle for best poster frame
+      const targetTime = Math.min(1.0, video.duration > 0.5 ? video.duration * 0.25 : 0.1);
+      video.currentTime = targetTime;
+    };
+
+    video.onseeked = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        const maxW = 1280;
+        const maxH = 720;
+        let w = video.videoWidth || 1280;
+        let h = video.videoHeight || 720;
+
+        if (w > maxW || h > maxH) {
+          if (w / h > maxW / maxH) {
+            h = Math.round((h * maxW) / w);
+            w = maxW;
+          } else {
+            w = Math.round((w * maxH) / h);
+            h = maxH;
+          }
+        }
+
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, w, h);
+        }
+
+        const thumbnailDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+
+        // Format duration
+        const totalSec = Math.round(video.duration || 0);
+        const mins = Math.floor(totalSec / 60);
+        const secs = totalSec % 60;
+        const durationFormatted = `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+
+        cleanup();
+        resolve({
+          thumbnailDataUrl,
+          durationFormatted,
+          durationSec: totalSec,
+        });
+      } catch (err) {
+        cleanup();
+        reject(err);
+      }
+    };
+
+    video.onerror = () => {
+      cleanup();
+      reject(new Error("Unable to parse video metadata"));
+    };
+  });
+}
+
 export default function AdminVideosPage() {
   const [videos, setVideos] = useState<VideoProject[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +124,12 @@ export default function AdminVideosPage() {
   // Search & Filtering
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+
+  // Video Mode: "upload" (file) or "link" (YouTube / Vimeo / Direct URL)
+  const [videoInputMode, setVideoInputMode] = useState<"upload" | "link">("upload");
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string>("");
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
 
   const emptyForm: Omit<VideoProject, "id" | "createdAt"> = {
     title: "",
@@ -100,6 +190,7 @@ export default function AdminVideosPage() {
     setEditingId(null);
     setFormData(emptyForm);
     setSoftwareInput("Premiere Pro, After Effects");
+    setVideoInputMode("upload");
     setModalOpen(true);
   };
 
@@ -120,15 +211,117 @@ export default function AdminVideosPage() {
       views: video.views || "",
     });
     setSoftwareInput((video.softwareUsed || []).join(", "));
+    // Detect mode
+    const isLink =
+      video.videoUrl.includes("youtube") ||
+      video.videoUrl.includes("youtu.be") ||
+      video.videoUrl.includes("vimeo");
+    setVideoInputMode(isLink ? "link" : "upload");
     setModalOpen(true);
+  };
+
+  // Video File Selection Handler
+  const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingVideo(true);
+    setUploadProgress("Analyzing video & generating thumbnail frame...");
+
+    try {
+      // 1. Auto capture video frame and duration
+      try {
+        const frameData = await extractVideoFrameAndDuration(file);
+        setFormData((prev) => ({
+          ...prev,
+          thumbnailUrl: prev.thumbnailUrl || frameData.thumbnailDataUrl,
+          duration: frameData.durationFormatted || prev.duration,
+          title: prev.title || file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " "),
+        }));
+      } catch (thumbErr) {
+        console.warn("Could not extract frame automatically:", thumbErr);
+      }
+
+      setUploadProgress("Uploading video file...");
+
+      // 2. Upload file to backend (/api/upload)
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+      uploadFormData.append("folder", "ranjith-portfolio/videos");
+
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: uploadFormData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.url) {
+          setFormData((prev) => ({
+            ...prev,
+            videoUrl: data.url,
+          }));
+          setMessage({
+            type: "success",
+            text: `Video "${file.name}" uploaded successfully!`,
+          });
+        } else {
+          throw new Error(data.error || "Upload failed");
+        }
+      } else {
+        throw new Error("Server rejected video upload");
+      }
+    } catch (err: any) {
+      console.error("Video upload error:", err);
+      // Fallback: If file is under 25MB, generate object URL or data URL
+      const fallbackUrl = URL.createObjectURL(file);
+      setFormData((prev) => ({
+        ...prev,
+        videoUrl: fallbackUrl,
+      }));
+      setMessage({
+        type: "error",
+        text: `Server upload notice: ${err?.message || "Using local preview"}. You can also paste a direct YouTube / Vimeo link!`,
+      });
+    } finally {
+      setIsUploadingVideo(false);
+      setUploadProgress("");
+      if (videoFileInputRef.current) {
+        videoFileInputRef.current.value = "";
+      }
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
 
+    if (!formData.title || !formData.title.trim()) {
+      setMessage({ type: "error", text: "Please enter a project title" });
+      return;
+    }
+
+    if (!formData.videoUrl || !formData.videoUrl.trim()) {
+      setMessage({ type: "error", text: "Please upload a video file or enter a video link" });
+      return;
+    }
+
+    // Auto-generate thumbnail from YouTube if link is YouTube and thumbnail is empty
+    let finalThumbnail = formData.thumbnailUrl;
+    if (!finalThumbnail) {
+      const ytMatch = formData.videoUrl.match(
+        /(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/
+      );
+      if (ytMatch && ytMatch[1]) {
+        finalThumbnail = `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`;
+      } else {
+        finalThumbnail = "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=1200&q=80";
+      }
+    }
+
     const payload = {
       ...formData,
+      thumbnailUrl: finalThumbnail,
       softwareUsed: softwareInput.split(",").map((s) => s.trim()).filter(Boolean),
     };
 
@@ -158,7 +351,7 @@ export default function AdminVideosPage() {
         });
         const data = await res.json();
         if (res.ok && data.success) {
-          setMessage({ type: "success", text: "New video project created!" });
+          setMessage({ type: "success", text: "New video project created successfully!" });
           setModalOpen(false);
           try {
             localStorage.setItem("portfolio_updated", Date.now().toString());
@@ -210,7 +403,7 @@ export default function AdminVideosPage() {
             <span>Video Projects Management</span>
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">
-            Manage your commercials, Reels, YouTube videos, and motion graphics showcased on the website.
+            Upload actual video files (.mp4, .webm, .mov) or add YouTube/Vimeo links showcased on your website.
           </p>
         </div>
 
@@ -298,85 +491,71 @@ export default function AdminVideosPage() {
       {/* Empty State */}
       {filteredVideos.length === 0 && (
         <div className="rounded-2xl border border-white/10 bg-dark-900/50 p-12 text-center">
-          <Video className="mx-auto h-12 w-12 text-gray-600" />
-          <h3 className="mt-3 text-sm font-bold text-white">No video projects match your criteria</h3>
-          <p className="mt-1 text-xs text-gray-400">
-            Try adjusting your search query or category filter, or add a new video project.
+          <Film className="h-12 w-12 text-gray-600 mx-auto mb-3" />
+          <h3 className="text-base font-bold text-white">No video projects found</h3>
+          <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
+            {searchQuery || selectedCategory !== "All"
+              ? "Try adjusting your search terms or filter to see more projects."
+              : "Click the 'Add Video Project' button above to showcase your first video."}
           </p>
-          {(searchQuery || selectedCategory !== "All") && (
-            <button
-              onClick={() => {
-                setSearchQuery("");
-                setSelectedCategory("All");
-              }}
-              className="mt-4 rounded-xl border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-semibold text-gray-300 hover:bg-white/10"
-            >
-              Clear Filters
-            </button>
-          )}
         </div>
       )}
 
-      {/* Videos List / Cards Grid */}
+      {/* Video Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredVideos.map((video) => (
           <div
             key={video.id}
-            className="flex flex-col justify-between rounded-2xl border border-white/10 bg-dark-900/90 overflow-hidden hover:border-white/20 transition-all shadow-lg"
+            className="group relative flex flex-col rounded-2xl border border-white/10 bg-dark-900/80 overflow-hidden hover:border-electric-500/50 transition-all duration-300"
           >
-            {/* Thumbnail */}
-            <div className="relative aspect-video w-full bg-dark-950">
+            {/* Thumbnail Box */}
+            <div className="relative aspect-video w-full bg-dark-950 overflow-hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={video.thumbnailUrl}
+                src={video.thumbnailUrl || "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=1200&q=80"}
                 alt={video.title}
-                className="h-full w-full object-cover"
+                className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src =
+                    "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=1200&q=80";
+                }}
               />
-              <span className="absolute top-2.5 left-2.5 rounded bg-black/75 backdrop-blur-sm px-2 py-0.5 text-[10px] font-bold text-electric-300 uppercase">
-                {video.category}
-              </span>
-              {video.featured && (
-                <span className="absolute top-2.5 right-2.5 rounded bg-neon-orange px-2 py-0.5 text-[10px] font-bold text-white shadow-md shadow-neon-orange/30">
-                  Featured
+
+              <div className="absolute inset-0 bg-gradient-to-t from-dark-950/90 via-transparent to-transparent" />
+
+              {/* Badges */}
+              <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                <span className="rounded-md bg-black/75 backdrop-blur-md px-2 py-0.5 text-[10px] font-bold text-electric-300 uppercase tracking-wide">
+                  {video.category}
                 </span>
-              )}
+                {video.featured && (
+                  <span className="rounded-md bg-neon-orange px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
+                    Featured
+                  </span>
+                )}
+              </div>
+
               {video.duration && (
-                <span className="absolute bottom-2.5 right-2.5 rounded bg-black/80 px-1.5 py-0.5 text-[10px] font-mono text-gray-300">
+                <span className="absolute bottom-2.5 right-2.5 rounded-md bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-md">
                   {video.duration}
                 </span>
               )}
             </div>
 
-            {/* Details */}
-            <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
+            {/* Content */}
+            <div className="p-4 flex flex-col flex-1 justify-between gap-3">
               <div>
-                <h3 className="font-bold text-white text-base line-clamp-1">{video.title}</h3>
-                <p className="text-xs text-gray-400 line-clamp-2 mt-1">{video.description}</p>
+                <h3 className="text-sm font-bold text-white line-clamp-1 group-hover:text-electric-300 transition-colors">
+                  {video.title}
+                </h3>
+                <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                  {video.description}
+                </p>
               </div>
 
-              <div className="space-y-2 pt-2 border-t border-white/5">
-                <div className="flex items-center justify-between text-[11px] text-gray-400">
-                  <span>Client: {video.client || "Self Project"}</span>
-                  <span>{video.year || "2026"}</span>
-                </div>
-
-                {video.views && (
-                  <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold">
-                    <Eye className="h-3 w-3" />
-                    <span>{video.views}</span>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-1">
-                  {video.softwareUsed?.map((sw, i) => (
-                    <span
-                      key={i}
-                      className="rounded bg-white/5 border border-white/5 px-1.5 py-0.5 text-[10px] text-gray-300"
-                    >
-                      {sw}
-                    </span>
-                  ))}
-                </div>
+              <div className="flex items-center justify-between text-[11px] text-gray-400 pt-2 border-t border-white/5">
+                <span>Client: <strong className="text-gray-300">{video.client || "Personal"}</strong></span>
+                <span>{video.year || "2026"}</span>
               </div>
 
               {/* Action Buttons */}
@@ -452,7 +631,7 @@ export default function AdminVideosPage() {
             <div className="flex items-center justify-between pb-4 border-b border-white/10">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <Video className="h-5 w-5 text-electric-400" />
-                <span>{editingId ? "Edit Video Project" : "Add New Video Project"}</span>
+                <span>{editingId ? "Edit Video Project" : "Add Video Project"}</span>
               </h2>
               <button
                 onClick={() => setModalOpen(false)}
@@ -463,6 +642,7 @@ export default function AdminVideosPage() {
             </div>
 
             <form onSubmit={handleSave} className="space-y-4 pt-4">
+              {/* Project Title */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
                   Project Title <span className="text-red-400">*</span>
@@ -472,11 +652,149 @@ export default function AdminVideosPage() {
                   required
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  placeholder="e.g. Apex Hypercar Cinematic Trailer"
+                  placeholder="e.g. Apex Hypercar Commercial Cut"
                   className="w-full rounded-xl border border-white/10 bg-dark-950 px-4 py-2 text-xs text-white focus:border-electric-500 focus:outline-none"
                 />
               </div>
 
+              {/* Video Source Switcher: Upload File vs Video Link */}
+              <div className="space-y-2 rounded-2xl border border-electric-500/30 bg-electric-500/5 p-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
+                    <Film className="h-4 w-4 text-neon-orange" />
+                    <span>Video Content <span className="text-red-400">*</span></span>
+                  </label>
+
+                  {/* Mode Tabs */}
+                  <div className="flex items-center rounded-xl bg-dark-950 p-1 border border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => setVideoInputMode("upload")}
+                      className={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
+                        videoInputMode === "upload"
+                          ? "bg-gradient-to-r from-electric-600 to-neon-orange text-white shadow"
+                          : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      <Upload className="h-3 w-3" />
+                      <span>Upload Video File</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVideoInputMode("link")}
+                      className={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
+                        videoInputMode === "link"
+                          ? "bg-gradient-to-r from-electric-600 to-neon-orange text-white shadow"
+                          : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      <LinkIcon className="h-3 w-3" />
+                      <span>YouTube / Vimeo Link</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Upload File Input */}
+                {videoInputMode === "upload" ? (
+                  <div className="space-y-3 pt-2">
+                    <div
+                      onClick={() => !isUploadingVideo && videoFileInputRef.current?.click()}
+                      className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/20 bg-dark-950/70 p-6 text-center cursor-pointer transition-colors ${
+                        isUploadingVideo ? "opacity-60 cursor-not-allowed" : "hover:border-electric-500 hover:bg-dark-950"
+                      }`}
+                    >
+                      <input
+                        ref={videoFileInputRef}
+                        type="file"
+                        accept="video/mp4,video/webm,video/quicktime,video/mov,video/*"
+                        className="hidden"
+                        onChange={handleVideoFileChange}
+                      />
+
+                      {isUploadingVideo ? (
+                        <div className="flex flex-col items-center space-y-2">
+                          <Loader2 className="h-8 w-8 animate-spin text-electric-400" />
+                          <span className="text-xs font-bold text-white">{uploadProgress || "Uploading video..."}</span>
+                          <span className="text-[11px] text-gray-400">Please wait while the video frame is processed...</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center space-y-2">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-electric-500/20 text-electric-400">
+                            <Upload className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-white">Click to Select & Upload Video File</span>
+                            <p className="text-[11px] text-gray-400 mt-0.5">
+                              Supports MP4, WebM, MOV files. Video thumbnail & duration are captured automatically!
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {formData.videoUrl && (
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-medium text-gray-400">Current Video URL / Path:</label>
+                        <input
+                          type="text"
+                          value={formData.videoUrl}
+                          onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
+                          placeholder="Video URL or storage path"
+                          className="w-full rounded-xl border border-white/10 bg-dark-950 px-3 py-1.5 text-xs text-electric-300 focus:outline-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Video Link Input */
+                  <div className="space-y-2 pt-2">
+                    <input
+                      type="text"
+                      value={formData.videoUrl}
+                      onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
+                      placeholder="Paste YouTube, Vimeo or direct video link (e.g. https://www.youtube.com/watch?v=...)"
+                      className="w-full rounded-xl border border-white/10 bg-dark-950 px-4 py-2.5 text-xs text-white placeholder-gray-500 focus:border-electric-500 focus:outline-none"
+                    />
+                    <p className="text-[11px] text-gray-400">
+                      YouTube thumbnails and durations are parsed automatically when saved!
+                    </p>
+                  </div>
+                )}
+
+                {/* Video Preview Player inside Modal */}
+                {formData.videoUrl && (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-dark-950 p-2 overflow-hidden">
+                    <span className="text-[11px] font-bold text-electric-300 block mb-1.5">
+                      Live Video Preview:
+                    </span>
+                    {formData.videoUrl.includes("youtube") || formData.videoUrl.includes("youtu.be") ? (
+                      <div className="aspect-video w-full rounded-lg overflow-hidden bg-black">
+                        <iframe
+                          src={
+                            formData.videoUrl.includes("shorts/")
+                              ? `https://www.youtube.com/embed/${formData.videoUrl.split("shorts/")[1]?.split("?")[0]}`
+                              : formData.videoUrl.includes("v=")
+                              ? `https://www.youtube.com/embed/${formData.videoUrl.split("v=")[1]?.split("&")[0]}`
+                              : `https://www.youtube.com/embed/${formData.videoUrl.split("/").pop()}`
+                          }
+                          className="h-full w-full border-0"
+                          allowFullScreen
+                        />
+                      </div>
+                    ) : (
+                      <video
+                        src={formData.videoUrl}
+                        controls
+                        className="aspect-video w-full rounded-lg bg-black object-contain max-h-56"
+                      >
+                        Your browser does not support the video tag.
+                      </video>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Category & Client */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
@@ -510,37 +828,34 @@ export default function AdminVideosPage() {
                 </div>
               </div>
 
+              {/* Optional Custom Thumbnail (Auto-extracted or custom) */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
-                  Video URL (YouTube / Vimeo / Direct MP4) <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="url"
-                  required
-                  value={formData.videoUrl}
-                  onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  className="w-full rounded-xl border border-white/10 bg-dark-950 px-4 py-2 text-xs text-white focus:border-electric-500 focus:outline-none"
-                />
-              </div>
-
-              {/* Thumbnail Uploader */}
-              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
+                    Cover / Thumbnail (Auto-Generated or Custom)
+                  </label>
+                  {formData.thumbnailUrl && (
+                    <span className="text-[11px] text-emerald-400 flex items-center gap-1">
+                      <Sparkles className="h-3 w-3" /> Frame Ready
+                    </span>
+                  )}
+                </div>
                 <MediaUploader
-                  label="Thumbnail Image"
+                  label="Custom Cover Image (Optional)"
                   currentUrl={formData.thumbnailUrl}
                   onUploadComplete={(url) => setFormData({ ...formData, thumbnailUrl: url })}
                   accept="image/*"
                 />
                 <input
                   type="text"
-                  placeholder="Or enter direct thumbnail image URL"
+                  placeholder="Or enter direct thumbnail image URL (optional)"
                   value={formData.thumbnailUrl}
                   onChange={(e) => setFormData({ ...formData, thumbnailUrl: e.target.value })}
                   className="w-full rounded-xl border border-white/10 bg-dark-950 px-4 py-2 text-xs text-white focus:border-electric-500 focus:outline-none"
                 />
               </div>
 
+              {/* Description */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
                   Description <span className="text-red-400">*</span>
@@ -550,11 +865,12 @@ export default function AdminVideosPage() {
                   required
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Describe the project, color grading style, sound design..."
+                  placeholder="Describe the project cut, pace, grading, sound design..."
                   className="w-full rounded-xl border border-white/10 bg-dark-950 px-4 py-2 text-xs text-white focus:border-electric-500 focus:outline-none"
                 />
               </div>
 
+              {/* Duration, Year, Views */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
@@ -596,6 +912,7 @@ export default function AdminVideosPage() {
                 </div>
               </div>
 
+              {/* Software Used */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
                   Software Used (Comma-Separated)
@@ -609,6 +926,7 @@ export default function AdminVideosPage() {
                 />
               </div>
 
+              {/* Order & Featured */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold uppercase tracking-wider text-gray-300">
@@ -636,6 +954,7 @@ export default function AdminVideosPage() {
                 </div>
               </div>
 
+              {/* Modal Actions */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
                 <button
                   type="button"
@@ -646,7 +965,8 @@ export default function AdminVideosPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-electric-600 to-neon-orange px-5 py-2 text-xs font-bold text-white shadow-lg shadow-electric-600/30 hover:brightness-110"
+                  disabled={isUploadingVideo}
+                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-electric-600 to-neon-orange px-5 py-2 text-xs font-bold text-white shadow-lg shadow-electric-600/30 hover:brightness-110 disabled:opacity-50"
                 >
                   <Save className="h-4 w-4" />
                   <span>{editingId ? "Update Project" : "Create Project"}</span>
