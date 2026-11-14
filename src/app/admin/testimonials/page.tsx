@@ -123,6 +123,9 @@ export default function AdminTestimonialsPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "Testimonial updated successfully!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchTestimonials();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to update review" });
@@ -137,6 +140,9 @@ export default function AdminTestimonialsPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "New testimonial added!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchTestimonials();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to add testimonial" });
@@ -154,6 +160,9 @@ export default function AdminTestimonialsPage() {
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Testimonial deleted successfully" });
         setDeleteConfirmId(null);
+        try {
+          localStorage.setItem("portfolio_updated", Date.now().toString());
+        } catch {}
         fetchTestimonials();
       } else {
         setMessage({ type: "error", text: data.error || "Failed to delete testimonial" });

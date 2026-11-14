@@ -104,6 +104,9 @@ export default function AdminEducationPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "Education record updated successfully!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchEducation();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to update record" });
@@ -118,6 +121,9 @@ export default function AdminEducationPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "Education entry created successfully!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchEducation();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to create entry" });
@@ -141,6 +147,9 @@ export default function AdminEducationPage() {
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Record deleted successfully!" });
         setEducationList((prev) => prev.filter((item) => item.id !== id));
+        try {
+          localStorage.setItem("portfolio_updated", Date.now().toString());
+        } catch {}
       } else {
         setMessage({ type: "error", text: data.error || "Failed to delete record" });
       }

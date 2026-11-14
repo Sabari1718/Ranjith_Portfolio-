@@ -136,6 +136,9 @@ export default function AdminDesignsPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "Graphic design updated successfully!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchDesigns();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to update design" });
@@ -150,6 +153,9 @@ export default function AdminDesignsPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "New graphic design added!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchDesigns();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to add design" });
@@ -167,6 +173,9 @@ export default function AdminDesignsPage() {
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Design deleted successfully" });
         setDeleteConfirmId(null);
+        try {
+          localStorage.setItem("portfolio_updated", Date.now().toString());
+        } catch {}
         fetchDesigns();
       } else {
         setMessage({ type: "error", text: data.error || "Failed to delete design" });

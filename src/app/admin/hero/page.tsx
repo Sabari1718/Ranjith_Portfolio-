@@ -43,6 +43,9 @@ export default function AdminHeroPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Hero section updated successfully!" });
+        try {
+          localStorage.setItem("portfolio_updated", Date.now().toString());
+        } catch {}
       } else {
         setMessage({ type: "error", text: data.error || "Failed to update hero section." });
       }

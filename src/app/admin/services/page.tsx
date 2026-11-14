@@ -134,6 +134,9 @@ export default function AdminServicesPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "Service updated successfully!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchServices();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to update service" });
@@ -148,6 +151,9 @@ export default function AdminServicesPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "New service created!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchServices();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to create service" });
@@ -165,6 +171,9 @@ export default function AdminServicesPage() {
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Service deleted successfully" });
         setDeleteConfirmId(null);
+        try {
+          localStorage.setItem("portfolio_updated", Date.now().toString());
+        } catch {}
         fetchServices();
       } else {
         setMessage({ type: "error", text: data.error || "Failed to delete service" });

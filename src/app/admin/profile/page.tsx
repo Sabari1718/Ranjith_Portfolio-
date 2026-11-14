@@ -96,6 +96,9 @@ export default function AdminProfilePage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Profile & Hero details updated successfully! Homepage updated." });
+        try {
+          localStorage.setItem("portfolio_updated", Date.now().toString());
+        } catch {}
       } else {
         setMessage({ type: "error", text: data.error || "Failed to update profile." });
       }

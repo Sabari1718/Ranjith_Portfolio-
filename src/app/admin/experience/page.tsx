@@ -135,6 +135,9 @@ export default function AdminExperiencePage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "Experience record updated successfully!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchExperience();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to update experience" });
@@ -149,6 +152,9 @@ export default function AdminExperiencePage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "New experience record created!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchExperience();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to create experience" });
@@ -166,6 +172,9 @@ export default function AdminExperiencePage() {
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Experience record deleted successfully" });
         setDeleteConfirmId(null);
+        try {
+          localStorage.setItem("portfolio_updated", Date.now().toString());
+        } catch {}
         fetchExperience();
       } else {
         setMessage({ type: "error", text: data.error || "Failed to delete experience" });

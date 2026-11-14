@@ -143,6 +143,9 @@ export default function AdminVideosPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "Video project updated successfully!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchVideos();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to update video" });
@@ -157,6 +160,9 @@ export default function AdminVideosPage() {
         if (res.ok && data.success) {
           setMessage({ type: "success", text: "New video project created!" });
           setModalOpen(false);
+          try {
+            localStorage.setItem("portfolio_updated", Date.now().toString());
+          } catch {}
           fetchVideos();
         } else {
           setMessage({ type: "error", text: data.error || "Failed to create video" });
@@ -174,6 +180,9 @@ export default function AdminVideosPage() {
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Video deleted successfully" });
         setDeleteConfirmId(null);
+        try {
+          localStorage.setItem("portfolio_updated", Date.now().toString());
+        } catch {}
         fetchVideos();
       } else {
         setMessage({ type: "error", text: data.error || "Failed to delete video" });

@@ -62,6 +62,9 @@ export default function AdminSettingsPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setMessage({ type: "success", text: "Website settings saved successfully!" });
+        try {
+          localStorage.setItem("portfolio_updated", Date.now().toString());
+        } catch {}
       } else {
         setMessage({ type: "error", text: data.error || "Failed to update settings" });
       }

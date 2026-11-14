@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminFromRequest } from "@/lib/auth";
 import { uploadMedia } from "@/lib/cloudinary";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     const admin = getAdminFromRequest(req);
@@ -21,7 +23,7 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const fileUrl = await uploadMedia(buffer, file.name, folder);
+    const fileUrl = await uploadMedia(buffer, file.name, folder, file.type);
 
     return NextResponse.json({
       success: true,
@@ -29,9 +31,11 @@ export async function POST(req: NextRequest) {
       fileName: file.name,
       size: file.size,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Upload handler error:", error);
-    return NextResponse.json({ success: false, error: "File upload failed" }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: error?.message || "File upload failed" },
+      { status: 500 }
+    );
   }
 }
-

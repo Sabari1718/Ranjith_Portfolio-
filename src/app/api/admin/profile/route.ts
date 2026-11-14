@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { getAdminFromRequest } from "@/lib/auth";
 import { getHero, updateHero, getSettings, updateSettings } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   const admin = getAdminFromRequest(req);
@@ -14,36 +16,45 @@ export async function GET(req: NextRequest) {
     const hero = await getHero();
     const settings = await getSettings();
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        name: hero.name,
-        brandName: hero.brandName || "RANJITH KUMAR",
-        profileImage: hero.profileImage,
-        title: hero.title,
-        greeting: hero.greeting,
-        tagline: hero.tagline,
-        bio: hero.bio,
-        experienceBadge: hero.experienceBadge,
-        projectsBadge: hero.projectsBadge,
-        availableForHire: hero.availableForHire,
-        statusBadge: hero.statusBadge,
-        ctaPrimaryText: hero.ctaPrimaryText || "Explore My Work",
-        ctaPrimaryLink: hero.ctaPrimaryLink || "#videos",
-        ctaSecondaryText: hero.ctaSecondaryText || "Let's Connect",
-        ctaSecondaryLink: hero.ctaSecondaryLink || "#contact",
-        serviceTags: hero.serviceTags || ["Cinematic Video Editing", "Brand Identity", "Motion Graphics", "Poster Design", "Color Grading"],
-        email: settings.email,
-        phone: settings.phone,
-        whatsapp: settings.whatsapp,
-        instagram: settings.instagram,
-        linkedin: settings.linkedin,
-        youtube: settings.youtube,
-        behance: settings.behance,
-        twitter: settings.twitter || "",
-        author: settings.author,
+    return NextResponse.json(
+      {
+        success: true,
+        data: {
+          name: hero.name,
+          brandName: hero.brandName || "RANJITH KUMAR",
+          profileImage: hero.profileImage,
+          title: hero.title,
+          greeting: hero.greeting,
+          tagline: hero.tagline,
+          bio: hero.bio,
+          experienceBadge: hero.experienceBadge,
+          projectsBadge: hero.projectsBadge,
+          availableForHire: hero.availableForHire,
+          statusBadge: hero.statusBadge,
+          ctaPrimaryText: hero.ctaPrimaryText || "Explore My Work",
+          ctaPrimaryLink: hero.ctaPrimaryLink || "#videos",
+          ctaSecondaryText: hero.ctaSecondaryText || "Let's Connect",
+          ctaSecondaryLink: hero.ctaSecondaryLink || "#contact",
+          serviceTags: hero.serviceTags || ["Cinematic Video Editing", "Brand Identity", "Motion Graphics", "Poster Design", "Color Grading"],
+          email: settings.email,
+          phone: settings.phone,
+          whatsapp: settings.whatsapp,
+          instagram: settings.instagram,
+          linkedin: settings.linkedin,
+          youtube: settings.youtube,
+          behance: settings.behance,
+          twitter: settings.twitter || "",
+          author: settings.author,
+        },
       },
-    });
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      }
+    );
   } catch (error) {
     console.error("Profile GET error:", error);
     return NextResponse.json({ success: false, error: "Failed to load profile" }, { status: 500 });
@@ -98,6 +109,13 @@ export async function PUT(req: NextRequest) {
       updateHero(heroUpdates),
       updateSettings(settingsUpdates),
     ]);
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/profile");
+      revalidatePath("/admin/hero");
+      revalidatePath("/api/portfolio");
+    } catch {}
 
     return NextResponse.json({
       success: true,
