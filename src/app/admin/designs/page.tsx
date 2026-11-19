@@ -498,6 +498,7 @@ export default function AdminDesignsPage() {
                   currentUrl={formData.imageUrl}
                   onUploadComplete={(url) => setFormData({ ...formData, imageUrl: url })}
                   accept="image/*"
+                  cropAspect={formData.aspectRatio === "vertical" ? "4:5" : formData.aspectRatio === "horizontal" ? "1:1" : "1:1"}
                 />
                 <input
                   type="text"
