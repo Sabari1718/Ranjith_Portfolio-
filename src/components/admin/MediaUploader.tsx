@@ -14,8 +14,8 @@ import {
   Check,
   X,
   Sliders,
-  Expand,
-  Minimize,
+  Sparkles,
+  Maximize2,
 } from "lucide-react";
 
 interface MediaUploaderProps {
@@ -25,7 +25,7 @@ interface MediaUploaderProps {
   folder?: string;
   accept?: string;
   enableCrop?: boolean;
-  cropAspect?: "circle" | "1:1" | "9:16" | "4:5" | "flexible";
+  cropAspect?: "circle" | "original" | "1:1" | "4:5" | "9:16";
 }
 
 export default function MediaUploader({
@@ -48,10 +48,13 @@ export default function MediaUploader({
   const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
   const [rawFile, setRawFile] = useState<File | null>(null);
 
-  // Aspect mode toggle inside cropper: "circle" | "1:1" (Square) | "4:5" (Insta Portrait) | "9:16" (Story/Reel)
-  const [aspectMode, setAspectMode] = useState<"circle" | "1:1" | "4:5" | "9:16">(
-    cropAspect === "circle" ? "circle" : "1:1"
+  // Aspect mode toggle inside cropper: "original" | "circle" | "1:1" | "4:5" | "9:16"
+  const [aspectMode, setAspectMode] = useState<"original" | "circle" | "1:1" | "4:5" | "9:16">(
+    cropAspect === "circle" ? "circle" : "original"
   );
+
+  // Natural Dimensions
+  const [naturalDim, setNaturalDim] = useState({ width: 1000, height: 1000 });
 
   // Crop / Adjust Controls
   const [zoom, setZoom] = useState(1);
@@ -80,11 +83,20 @@ export default function MediaUploader({
     if (file.type.startsWith("image/") && enableCrop) {
       const reader = new FileReader();
       reader.onload = () => {
-        setRawImageSrc(reader.result as string);
+        const src = reader.result as string;
+        setRawImageSrc(src);
         setRawFile(file);
         setZoom(1);
         setPan({ x: 0, y: 0 });
-        setAspectMode(cropAspect === "circle" ? "circle" : "4:5");
+
+        // Load natural dimensions
+        const testImg = new Image();
+        testImg.onload = () => {
+          setNaturalDim({ width: testImg.naturalWidth, height: testImg.naturalHeight });
+        };
+        testImg.src = src;
+
+        setAspectMode(cropAspect === "circle" ? "circle" : "original");
         setShowCropModal(true);
       };
       reader.readAsDataURL(file);
@@ -94,6 +106,19 @@ export default function MediaUploader({
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
+    }
+  };
+
+  // Direct upload original without cropping
+  const handleUseOriginalDirectly = () => {
+    if (!rawFile && rawImageSrc) {
+      // Already an uploaded image being adjusted
+      setShowCropModal(false);
+      return;
+    }
+    if (rawFile) {
+      setShowCropModal(false);
+      processAndUploadBlob(rawFile, rawFile.name);
     }
   };
 
@@ -161,22 +186,20 @@ export default function MediaUploader({
     };
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
-  // Fit image fully inside the crop area (Zoom-out to fit)
+  // Fit image fully inside the crop area
   const handleFitToScreen = () => {
-    if (!imageRef.current || !cropAreaRef.current) return;
-    const img = imageRef.current;
-    const cropArea = cropAreaRef.current;
-
-    const scaleX = cropArea.clientWidth / (img.naturalWidth || 600);
-    const scaleY = cropArea.clientHeight / (img.naturalHeight || 600);
-    const fitScale = Math.min(scaleX, scaleY) * 1.5;
-
-    setZoom(Math.max(0.2, Math.min(fitScale, 1.2)));
+    setZoom(0.85);
     setPan({ x: 0, y: 0 });
   };
 
   // Crop & Export via HTML5 Canvas
   const handleApplyCrop = async () => {
+    // If aspect mode is "original", save raw file directly with 100% full original quality
+    if (aspectMode === "original") {
+      handleUseOriginalDirectly();
+      return;
+    }
+
     if (!imageRef.current || !cropAreaRef.current) {
       setShowCropModal(false);
       return;
@@ -189,7 +212,6 @@ export default function MediaUploader({
       const cropRect = cropArea.getBoundingClientRect();
       const imgRect = img.getBoundingClientRect();
 
-      // Target canvas dimensions based on chosen aspect ratio
       let targetW = 1080;
       let targetH = 1080;
       if (aspectMode === "4:5") {
@@ -221,7 +243,6 @@ export default function MediaUploader({
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
 
-      // If circle aspect mode, fill black/transparent outside or full canvas
       ctx.drawImage(
         img,
         sourceX,
@@ -234,7 +255,7 @@ export default function MediaUploader({
         targetH
       );
 
-      const croppedDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+      const croppedDataUrl = canvas.toDataURL("image/jpeg", 0.95);
       setPreview(croppedDataUrl);
       setShowCropModal(false);
 
@@ -249,7 +270,7 @@ export default function MediaUploader({
           }
         },
         "image/jpeg",
-        0.92
+        0.95
       );
     } catch (err) {
       console.error("Error cropping image:", err);
@@ -287,12 +308,12 @@ export default function MediaUploader({
       if (res.ok && data.success && data.url) {
         setPreview(data.url);
         onUploadComplete(data.url);
-        setSuccessMsg("Photo uploaded and adjusted successfully!");
+        setSuccessMsg("Photo uploaded successfully!");
       } else {
         if (localDataUrl) {
           setPreview(localDataUrl);
           onUploadComplete(localDataUrl);
-          setSuccessMsg("Adjusted photo ready!");
+          setSuccessMsg("Photo ready and applied!");
         } else {
           setError(data.error || "Upload failed");
         }
@@ -301,7 +322,7 @@ export default function MediaUploader({
       if (localDataUrl) {
         setPreview(localDataUrl);
         onUploadComplete(localDataUrl);
-        setSuccessMsg("Adjusted photo ready!");
+        setSuccessMsg("Photo ready and applied!");
       } else {
         setError("Network error while uploading");
       }
@@ -322,7 +343,7 @@ export default function MediaUploader({
           <div className="relative group flex-shrink-0">
             <div
               className={`relative overflow-hidden border-2 border-electric-500/50 bg-dark-950 shadow-md ${
-                cropAspect === "circle" ? "h-20 w-20 rounded-full" : "h-24 w-20 rounded-xl"
+                cropAspect === "circle" ? "h-20 w-20 rounded-full" : "h-24 w-24 rounded-xl"
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -390,7 +411,7 @@ export default function MediaUploader({
         </div>
       )}
 
-      {/* FULL INSTAGRAM-STYLE ADJUSTMENT & CROP MODAL */}
+      {/* INSTAGRAM-STYLE ADJUSTMENT & CROP MODAL */}
       {showCropModal && rawImageSrc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in overflow-y-auto">
           <div className="w-full max-w-xl rounded-2xl border border-white/15 bg-dark-900 p-5 sm:p-6 shadow-2xl space-y-4 my-auto">
@@ -399,7 +420,7 @@ export default function MediaUploader({
               <div className="flex items-center gap-2">
                 <Crop className="h-5 w-5 text-neon-orange" />
                 <h3 className="text-sm sm:text-base font-bold text-white">
-                  Adjust & Position Photo (Instagram Style)
+                  Photo Sizing & Adjustment
                 </h3>
               </div>
               <button
@@ -412,9 +433,23 @@ export default function MediaUploader({
             </div>
 
             {/* Ratio Mode Switcher */}
-            <div className="flex items-center justify-between gap-2 bg-dark-950 p-1.5 rounded-xl border border-white/10">
-              <span className="text-[11px] font-semibold text-gray-400 pl-2">Aspect Ratio:</span>
-              <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-dark-950 p-2 rounded-xl border border-white/10">
+              <span className="text-[11px] font-semibold text-gray-400 pl-1">Choose Framing:</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {/* 100% Full Original Size Option */}
+                <button
+                  type="button"
+                  onClick={() => setAspectMode("original")}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1 ${
+                    aspectMode === "original"
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow"
+                      : "text-gray-300 hover:text-white bg-white/5"
+                  }`}
+                >
+                  <Maximize2 className="h-3 w-3" />
+                  <span>Full Original (No Crop)</span>
+                </button>
+
                 {cropAspect === "circle" && (
                   <button
                     type="button"
@@ -448,7 +483,7 @@ export default function MediaUploader({
                       : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  4:5 Insta Portrait
+                  4:5 Insta Feed
                 </button>
                 <button
                   type="button"
@@ -465,121 +500,139 @@ export default function MediaUploader({
             </div>
 
             {/* Interactive Crop Viewport */}
-            <div className="relative flex items-center justify-center bg-black/95 rounded-2xl h-80 sm:h-96 overflow-hidden select-none border border-white/10">
-              {/* Mask Overlay based on aspectMode */}
-              <div
-                ref={cropAreaRef}
-                className={`pointer-events-none absolute z-20 transition-all duration-200 border-2 border-electric-500 shadow-[0_0_0_9999px_rgba(0,0,0,0.7)] ring-2 ring-neon-orange/40 ${
-                  aspectMode === "circle"
-                    ? "h-64 w-64 rounded-full"
-                    : aspectMode === "1:1"
-                    ? "h-64 w-64 rounded-xl"
-                    : aspectMode === "4:5"
-                    ? "h-72 w-[230px] rounded-xl"
-                    : "h-76 w-[170px] rounded-xl"
-                }`}
-              />
-
-              {/* Rule of Thirds Grid inside crop area */}
-              <div
-                className={`pointer-events-none absolute z-20 flex flex-col justify-between opacity-30 ${
-                  aspectMode === "circle"
-                    ? "h-64 w-64 rounded-full overflow-hidden"
-                    : aspectMode === "1:1"
-                    ? "h-64 w-64 rounded-xl"
-                    : aspectMode === "4:5"
-                    ? "h-72 w-[230px] rounded-xl"
-                    : "h-76 w-[170px] rounded-xl"
-                }`}
-              >
-                <div className="border-b border-white/40 h-1/3" />
-                <div className="border-b border-white/40 h-1/3" />
+            {aspectMode === "original" ? (
+              <div className="relative flex flex-col items-center justify-center bg-black/90 rounded-2xl h-80 sm:h-96 p-4 border border-emerald-500/40">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={rawImageSrc}
+                  alt="Original"
+                  className="max-h-full max-w-full object-contain rounded-xl shadow-2xl"
+                />
+                <div className="absolute bottom-3 inset-x-4 flex items-center justify-center">
+                  <span className="bg-black/80 backdrop-blur-md px-3.5 py-1.5 rounded-full text-xs font-semibold text-emerald-400 border border-emerald-500/30">
+                    ✓ Full image will be saved exactly as designed without any cropping
+                  </span>
+                </div>
               </div>
-              <div
-                className={`pointer-events-none absolute z-20 flex justify-between opacity-30 ${
-                  aspectMode === "circle"
-                    ? "h-64 w-64 rounded-full overflow-hidden"
-                    : aspectMode === "1:1"
-                    ? "h-64 w-64 rounded-xl"
-                    : aspectMode === "4:5"
-                    ? "h-72 w-[230px] rounded-xl"
-                    : "h-76 w-[170px] rounded-xl"
-                }`}
-              >
-                <div className="border-r border-white/40 w-1/3" />
-                <div className="border-r border-white/40 w-1/3" />
-              </div>
+            ) : (
+              <div className="relative flex items-center justify-center bg-black/95 rounded-2xl h-80 sm:h-96 overflow-hidden select-none border border-white/10">
+                {/* Mask Overlay based on aspectMode */}
+                <div
+                  ref={cropAreaRef}
+                  className={`pointer-events-none absolute z-20 transition-all duration-200 border-2 border-electric-500 shadow-[0_0_0_9999px_rgba(0,0,0,0.7)] ring-2 ring-neon-orange/40 ${
+                    aspectMode === "circle"
+                      ? "h-64 w-64 rounded-full"
+                      : aspectMode === "1:1"
+                      ? "h-64 w-64 rounded-xl"
+                      : aspectMode === "4:5"
+                      ? "h-76 w-[240px] rounded-xl"
+                      : "h-80 w-[180px] rounded-xl"
+                  }`}
+                />
 
-              {/* Draggable & Zoomable Image */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                ref={imageRef}
-                src={rawImageSrc}
-                alt="Adjust preview"
-                draggable={false}
-                onMouseDown={handleMouseDown}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                style={{
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                  cursor: isDragging ? "grabbing" : "grab",
-                  transition: isDragging ? "none" : "transform 0.05s ease-out",
-                }}
-                className="max-h-none max-w-none origin-center"
-              />
+                {/* Rule of Thirds Grid inside crop area */}
+                <div
+                  className={`pointer-events-none absolute z-20 flex flex-col justify-between opacity-30 ${
+                    aspectMode === "circle"
+                      ? "h-64 w-64 rounded-full overflow-hidden"
+                      : aspectMode === "1:1"
+                      ? "h-64 w-64 rounded-xl"
+                      : aspectMode === "4:5"
+                      ? "h-76 w-[240px] rounded-xl"
+                      : "h-80 w-[180px] rounded-xl"
+                  }`}
+                >
+                  <div className="border-b border-white/40 h-1/3" />
+                  <div className="border-b border-white/40 h-1/3" />
+                </div>
+                <div
+                  className={`pointer-events-none absolute z-20 flex justify-between opacity-30 ${
+                    aspectMode === "circle"
+                      ? "h-64 w-64 rounded-full overflow-hidden"
+                      : aspectMode === "1:1"
+                      ? "h-64 w-64 rounded-xl"
+                      : aspectMode === "4:5"
+                      ? "h-76 w-[240px] rounded-xl"
+                      : "h-80 w-[180px] rounded-xl"
+                  }`}
+                >
+                  <div className="border-r border-white/40 w-1/3" />
+                  <div className="border-r border-white/40 w-1/3" />
+                </div>
 
-              {/* Helper badge */}
-              <div className="absolute top-3 left-3 z-30 flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1 text-[11px] font-medium text-gray-300 backdrop-blur-sm pointer-events-none">
-                <Move className="h-3 w-3 text-neon-orange" />
-                <span>Drag photo to position</span>
-              </div>
+                {/* Draggable & Zoomable Image */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  ref={imageRef}
+                  src={rawImageSrc}
+                  alt="Adjust preview"
+                  draggable={false}
+                  onMouseDown={handleMouseDown}
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  style={{
+                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                    cursor: isDragging ? "grabbing" : "grab",
+                    transition: isDragging ? "none" : "transform 0.05s ease-out",
+                  }}
+                  className="max-h-none max-w-none origin-center"
+                />
 
-              {/* Fit full image button */}
-              <button
-                type="button"
-                onClick={handleFitToScreen}
-                className="absolute top-3 right-3 z-30 flex items-center gap-1.5 rounded-full bg-dark-900/80 hover:bg-dark-900 border border-white/20 px-3 py-1 text-[11px] font-semibold text-white backdrop-blur-sm shadow"
-              >
-                <Minimize className="h-3 w-3 text-electric-400" />
-                <span>Fit Whole Photo</span>
-              </button>
-            </div>
+                {/* Helper badge */}
+                <div className="absolute top-3 left-3 z-30 flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1 text-[11px] font-medium text-gray-300 backdrop-blur-sm pointer-events-none">
+                  <Move className="h-3 w-3 text-neon-orange" />
+                  <span>Drag photo to position</span>
+                </div>
 
-            {/* Zoom / Size Slider Controls */}
-            <div className="space-y-2 pt-1">
-              <div className="flex items-center justify-between text-xs font-semibold text-gray-300">
-                <span className="flex items-center gap-1.5">
-                  <ZoomIn className="h-4 w-4 text-electric-400" />
-                  <span>Zoom / Photo Size: {Math.round(zoom * 100)}%</span>
-                </span>
+                {/* Fit whole photo button */}
                 <button
                   type="button"
-                  onClick={() => {
-                    setZoom(1);
-                    setPan({ x: 0, y: 0 });
-                  }}
-                  className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white"
+                  onClick={handleFitToScreen}
+                  className="absolute top-3 right-3 z-30 flex items-center gap-1.5 rounded-full bg-dark-900/80 hover:bg-dark-900 border border-white/20 px-3 py-1 text-[11px] font-semibold text-white backdrop-blur-sm shadow"
                 >
-                  <RotateCcw className="h-3 w-3" />
-                  <span>Reset (100%)</span>
+                  <Sparkles className="h-3 w-3 text-electric-400" />
+                  <span>Fit in Box</span>
                 </button>
               </div>
+            )}
 
-              <div className="flex items-center gap-3">
-                <ZoomOut className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                <input
-                  type="range"
-                  min="0.2"
-                  max="3"
-                  step="0.05"
-                  value={zoom}
-                  onChange={(e) => setZoom(parseFloat(e.target.value))}
-                  className="w-full accent-electric-500 h-1.5 bg-white/10 rounded-lg cursor-pointer"
-                />
-                <ZoomIn className="h-4 w-4 text-electric-400 flex-shrink-0" />
+            {/* Zoom / Size Slider Controls (when in crop modes) */}
+            {aspectMode !== "original" && (
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between text-xs font-semibold text-gray-300">
+                  <span className="flex items-center gap-1.5">
+                    <ZoomIn className="h-4 w-4 text-electric-400" />
+                    <span>Zoom / Scale: {Math.round(zoom * 100)}%</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setZoom(1);
+                      setPan({ x: 0, y: 0 });
+                    }}
+                    className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    <span>Reset</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <ZoomOut className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <input
+                    type="range"
+                    min="0.2"
+                    max="3"
+                    step="0.05"
+                    value={zoom}
+                    onChange={(e) => setZoom(parseFloat(e.target.value))}
+                    className="w-full accent-electric-500 h-1.5 bg-white/10 rounded-lg cursor-pointer"
+                  />
+                  <ZoomIn className="h-4 w-4 text-electric-400 flex-shrink-0" />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Action Buttons */}
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
@@ -596,7 +649,7 @@ export default function MediaUploader({
                 className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-electric-600 to-neon-orange px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-electric-600/30 hover:brightness-110 active:scale-95 transition-all"
               >
                 <Check className="h-4 w-4" />
-                <span>Apply & Save Photo</span>
+                <span>{aspectMode === "original" ? "Use Full Image (No Crop)" : "Apply & Save Photo"}</span>
               </button>
             </div>
           </div>

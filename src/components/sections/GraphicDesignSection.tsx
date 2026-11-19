@@ -93,14 +93,14 @@ export default function GraphicDesignSection({ designs }: GraphicDesignSectionPr
                   className="group relative cursor-pointer rounded-2xl border border-white/10 bg-dark-850/80 backdrop-blur-xl overflow-hidden glass-panel-hover flex flex-col"
                 >
                   {/* Artwork Image Container */}
-                  <div className={`relative w-full overflow-hidden bg-dark-950 ${
+                  <div className={`relative w-full overflow-hidden bg-dark-950 flex items-center justify-center ${
                     design.aspectRatio === "vertical" ? "aspect-[4/5]" : design.aspectRatio === "horizontal" ? "aspect-[16/10]" : "aspect-square"
                   }`}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={design.imageUrl}
                       alt={design.title}
-                      className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-108"
+                      className="h-full w-full object-contain sm:object-cover transition-transform duration-700 group-hover:scale-105"
                     />
 
                     {/* Gradient overlay */}
