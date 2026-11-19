@@ -143,7 +143,7 @@ export default function HeroSection({ hero }: HeroSectionProps) {
                     <img
                       src={hero.profileImage}
                       alt={hero.name}
-                      className="h-full w-full rounded-full object-cover object-top filter brightness-[1.02] contrast-[1.03] transition-transform duration-700 group-hover:scale-105"
+                      className="h-full w-full rounded-full object-cover object-center filter brightness-[1.02] contrast-[1.03] transition-transform duration-700 group-hover:scale-105"
                       style={{ aspectRatio: "1 / 1" }}
                     />
                   ) : (
